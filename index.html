@@ -126,78 +126,80 @@ renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
 
 // ── DYNAMIC SKY ───────────────────────────────────────────────
-// 3분(180초) 동안 밤 → 새벽 → 낮으로 변화
-const SKY_DURATION = 60; // 1분
-const SKY_START_T = 0.65; // 아침부터 시작
+// 루프: 새벽→아침→한낮→저녁노을→밤→새벽... (3분 1사이클)
+const SKY_DURATION = 180;
+const SKY_START_T  = 0.38; // 한낮에서 시작
 const gameStartTime = performance.now() - SKY_START_T * SKY_DURATION * 1000;
 
-// 하늘 색상 keyframes: [t(0~1), top, bottom]
+// t: 0=새벽, 0.15=아침, 0.3=한낮, 0.5=오후, 0.62=저녁노을, 0.72=황혼, 0.82=밤, 0.92=한밤, 1=새벽
 const SKY_KEYS = [
-  { t:0,    top:'#060e1c', bot:'#0d2a4a' }, // 깊은 밤
-  { t:0.25, top:'#0d1a3a', bot:'#1a3a6a' }, // 한밤
-  { t:0.45, top:'#1a1a4a', bot:'#4a2a6a' }, // 새벽 전
-  { t:0.55, top:'#3a1a2a', bot:'#c85a2a' }, // 일출 (붉은 새벽)
-  { t:0.65, top:'#1a4a8a', bot:'#e87a3a' }, // 해뜨는 중
-  { t:0.78, top:'#2a6aaa', bot:'#87ceeb' }, // 아침
-  { t:1.0,  top:'#1a7ac8', bot:'#d4eeff' }, // 맑은 낮
+  { t:0.00, top:'#0a0e28', bot:'#1a1a40' }, // 새벽
+  { t:0.08, top:'#0d1050', bot:'#3a1a5a' }, // 동트기 전
+  { t:0.14, top:'#1a1060', bot:'#c84a2a' }, // 동이 틈
+  { t:0.20, top:'#2a4a9a', bot:'#f4803a' }, // 일출
+  { t:0.28, top:'#2a6aaa', bot:'#87ceeb' }, // 아침
+  { t:0.38, top:'#1a7ac8', bot:'#c8eeff' }, // 한낮
+  { t:0.50, top:'#1a7ac8', bot:'#d4eeff' }, // 한낮 유지
+  { t:0.58, top:'#2a6aaa', bot:'#f0a050' }, // 오후
+  { t:0.65, top:'#3a2a10', bot:'#f06020' }, // 저녁노을
+  { t:0.72, top:'#1a1030', bot:'#602010' }, // 황혼
+  { t:0.80, top:'#080818', bot:'#100820' }, // 밤 시작
+  { t:0.90, top:'#050810', bot:'#0a1020' }, // 한밤
+  { t:1.00, top:'#0a0e28', bot:'#1a1a40' }, // 새벽 (루프)
 ];
 
-function lerpColor(a, b, t){
-  const ah=parseInt(a.slice(1),16), bh=parseInt(b.slice(1),16);
-  const ar=(ah>>16)&255, ag=(ah>>8)&255, ab=ah&255;
-  const br=(bh>>16)&255, bg=(bh>>8)&255, bb=bh&255;
-  const r=Math.round(ar+(br-ar)*t);
-  const g=Math.round(ag+(bg-ag)*t);
-  const bl2=Math.round(ab+(bb-ab)*t);
-  return '#'+[r,g,bl2].map(v=>v.toString(16).padStart(2,'0')).join('');
+function lerpColor(a,b,t){
+  const ah=parseInt(a.slice(1),16),bh=parseInt(b.slice(1),16);
+  const ar=(ah>>16)&255,ag=(ah>>8)&255,ab=ah&255;
+  const br=(bh>>16)&255,bg=(bh>>8)&255,bb=bh&255;
+  const r=Math.round(ar+(br-ar)*t),g=Math.round(ag+(bg-ag)*t),bl=Math.round(ab+(bb-ab)*t);
+  return '#'+[r,g,bl].map(v=>v.toString(16).padStart(2,'0')).join('');
 }
 
 function getSkyColors(t){
-  t = Math.min(1, Math.max(0, t));
-  let k0=SKY_KEYS[0], k1=SKY_KEYS[1];
+  t=((t%1)+1)%1;
+  let k0=SKY_KEYS[SKY_KEYS.length-1],k1=SKY_KEYS[0];
   for(let i=0;i<SKY_KEYS.length-1;i++){
-    if(t>=SKY_KEYS[i].t && t<=SKY_KEYS[i+1].t){ k0=SKY_KEYS[i]; k1=SKY_KEYS[i+1]; break; }
+    if(t>=SKY_KEYS[i].t&&t<SKY_KEYS[i+1].t){k0=SKY_KEYS[i];k1=SKY_KEYS[i+1];break;}
   }
   const lt=(t-k0.t)/Math.max(0.001,k1.t-k0.t);
-  return { top: lerpColor(k0.top,k1.top,lt), bot: lerpColor(k0.bot,k1.bot,lt) };
+  return{top:lerpColor(k0.top,k1.top,lt),bot:lerpColor(k0.bot,k1.bot,lt),label:k0.label};
 }
 
-const skyC = document.createElement('canvas');
-skyC.width=2; skyC.height=512;
-const skyCtx = skyC.getContext('2d');
-const skyTex = new THREE.CanvasTexture(skyC);
-scene.background = skyTex;
+const skyC=document.createElement('canvas');
+skyC.width=2;skyC.height=512;
+const skyCtx=skyC.getContext('2d');
+const skyTex=new THREE.CanvasTexture(skyC);
+scene.background=skyTex;
 
 function updateSky(t){
-  const {top,bot} = getSkyColors(t);
-  const sg = skyCtx.createLinearGradient(0,0,0,512);
-  sg.addColorStop(0, top);
-  sg.addColorStop(1, bot);
-  skyCtx.fillStyle=sg;
-  skyCtx.fillRect(0,0,2,512);
+  const{top,bot}=getSkyColors(t);
+  const sg=skyCtx.createLinearGradient(0,0,0,512);
+  sg.addColorStop(0,top);sg.addColorStop(1,bot);
+  skyCtx.fillStyle=sg;skyCtx.fillRect(0,0,2,512);
   skyTex.needsUpdate=true;
 }
-updateSky(0);
+updateSky(SKY_START_T);
 
-const camera = new THREE.PerspectiveCamera(52, innerWidth/innerHeight, 0.1, 200);
-camera.position.set(0, 1, 12);
+const camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,200);
+camera.position.set(0,1,12);
 camera.lookAt(0,0,0);
 
 // ── LIGHTING ─────────────────────────────────────────────────
-const ambientLight = new THREE.AmbientLight(0x223355, 0.5); // 밤엔 어둡게
+const ambientLight=new THREE.AmbientLight(0xd0e8ff, 0.9);
 scene.add(ambientLight);
-const sun = new THREE.DirectionalLight(0xfff4e0, 0.3); // 처음엔 약하게
-sun.position.set(7,14,6);
-scene.add(sun);
-const rim = new THREE.DirectionalLight(0x88bbff,0.4);
-rim.position.set(-6,4,-8); scene.add(rim);
+const sunLight=new THREE.DirectionalLight(0xfff4e0, 0.4);
+sunLight.position.set(7,14,6);
+scene.add(sunLight);
+const rimLight=new THREE.DirectionalLight(0x88bbff, 0.5);
+rimLight.position.set(-6,4,-8); scene.add(rimLight);
 
-// ── STARS: 낮이 되면 사라지게
+// ── STARS ────────────────────────────────────────────────────
 const starGeo=new THREE.BufferGeometry();
 const starPos=[];
-for(let i=0;i<350;i++) starPos.push((Math.random()-.5)*180,Math.random()*90-5,(Math.random()-.5)*80-15);
+for(let i=0;i<350;i++) starPos.push((Math.random()-.5)*140,10+Math.random()*50,(Math.random()-.5)*40-30);
 starGeo.setAttribute('position',new THREE.Float32BufferAttribute(starPos,3));
-const starMat=new THREE.PointsMaterial({color:0xffffff,size:0.11,transparent:true,opacity:0.85});
+const starMat=new THREE.PointsMaterial({color:0xffffff,size:0.13,transparent:true,opacity:0.9});
 const stars=new THREE.Points(starGeo,starMat);
 scene.add(stars);
 
@@ -267,24 +269,51 @@ function buildMaltese() {
   nose.scale.set(1.1, 0.75, 0.9);
   nose.position.set(0, 1.22, 1.02); g.add(nose);
 
-  // ── 눈 × 2
-  [[-0.3, 1.35, 0.82],[0.3, 1.35, 0.82]].forEach(([x,y,z])=>{
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.095, 18, 18), black);
-    eye.position.set(x,y,z); g.add(eye);
+  // ── 눈 × 2: 스프라이트로 표정 전환 가능
+  function makeEyeTex(happy){
+    const c=document.createElement('canvas'); c.width=64; c.height=64;
+    const ctx=c.getContext('2d');
+    if(happy){
+      // 귀여운 ^^ 호 눈
+      ctx.strokeStyle='#111';
+      ctx.lineWidth=10;
+      ctx.lineCap='round';
+      ctx.beginPath();
+      ctx.arc(32, 38, 20, Math.PI, 2*Math.PI); // 위로 볼록한 호
+      ctx.stroke();
+    } else {
+      // 검정 원
+      ctx.fillStyle='#111';
+      ctx.beginPath(); ctx.arc(32,32,28,0,Math.PI*2); ctx.fill();
+    }
+    return new THREE.CanvasTexture(c);
+  }
+  const eyeSprites=[];
+  [[-0.3, 1.35, 0.96],[0.3, 1.35, 0.96]].forEach(([x,y,z],i)=>{
+    const mat=new THREE.SpriteMaterial({map:makeEyeTex(false),transparent:true,depthWrite:false});
+    const sp=new THREE.Sprite(mat);
+    sp.scale.set(0.16,0.16,1);
+    sp.position.set(x,y,z);
+    // 오른쪽 눈은 x 반전
+    if(i===1) sp.scale.x=-0.16;
+    g.add(sp);
+    eyeSprites.push(sp);
   });
+  g.userData.eyeSprites=eyeSprites;
+  g.userData.makeEyeTex=makeEyeTex;
 
-  // ── 이빨: 주둥이 앞면(z=1.164) 바깥으로, 아래 방향 뾰족
+  // ── 이빨
   [-0.11, 0.11].forEach(x=>{
     const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.034, 0.1, 8), toothMat);
     tooth.position.set(x, 1.16, 1.18); g.add(tooth);
   });
 
-  // ── 혀: 간식 먹을 때
+  // ── 혀: 코 바로 아래
   const tongueGroup = new THREE.Group();
-  tongueGroup.position.set(0, 0.9, 1.0);
+  tongueGroup.position.set(0, 1.08, 1.1);
   tongueGroup.visible = false;
   const tongueMesh = new THREE.Mesh(new THREE.SphereGeometry(0.1,12,12), tongue);
-  tongueMesh.scale.set(1.1, 0.5, 0.9);
+  tongueMesh.scale.set(1.2, 0.55, 0.85);
   tongueGroup.add(tongueMesh);
   g.add(tongueGroup);
   g.userData.tongueGroup = tongueGroup;
@@ -457,12 +486,35 @@ function buildDots() {
 }
 buildDots();
 
-function floatTxt(txt,cx,cy){
+// 3D 월드 좌표 → 화면 픽셀 좌표 변환
+function worldToScreen(wx, wy, wz){
+  const v = new THREE.Vector3(wx, wy, wz);
+  v.project(camera);
+  return {
+    x: (v.x * 0.5 + 0.5) * innerWidth,
+    y: (-v.y * 0.5 + 0.5) * innerHeight
+  };
+}
+
+function floatTxt(txt, cx, cy){
   const d=document.createElement('div');
   d.className='float-txt'; d.textContent=txt;
-  d.style.left=cx+'px'; d.style.top=cy+'px';
+  d.style.left=(cx-30)+'px'; d.style.top=cy+'px';
   document.body.appendChild(d);
   setTimeout(()=>d.remove(),1100);
+}
+
+function floatTxtBig(txt, cx, cy){
+  const d=document.createElement('div');
+  d.className='float-txt';
+  d.textContent=txt;
+  d.style.left=(cx-60)+'px'; d.style.top=cy+'px';
+  d.style.fontSize='28px';
+  d.style.fontWeight='900';
+  d.style.textShadow='0 0 12px rgba(255,200,0,0.8)';
+  d.style.color='#ffe066';
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),1300);
 }
 
 function showSnackMsg(txt,sub=''){
@@ -629,19 +681,21 @@ function animate(){
       if(phase==='airborne'){
         const isHighJump = lastJumpPower >= 0.28;
         let lostKg;
+        const headScreen = worldToScreen(px, py+2.4, pz);
         if(isHighJump){
           highJumpCombo++;
           if(highJumpCombo >= 2){
             lostKg = 3;
-            floatTxt('🔥 Combo! -'+lostKg+'kg', innerWidth/2, innerHeight*0.32);
+            floatTxtBig('🔥 Combo x'+highJumpCombo+'!', headScreen.x, headScreen.y-40);
+            floatTxt('-'+lostKg+'kg', headScreen.x, headScreen.y+10);
           } else {
             lostKg = 2;
-            floatTxt('-'+lostKg+'kg 💪', innerWidth/2, innerHeight*0.38);
+            floatTxt('-'+lostKg+'kg 💪', headScreen.x, headScreen.y);
           }
         } else {
           highJumpCombo = 0;
           lostKg = 0.5;
-          floatTxt('-'+lostKg+'kg', innerWidth/2, innerHeight*0.38);
+          floatTxt('-'+lostKg+'kg', headScreen.x, headScreen.y);
         }
         weight = Math.max(GOAL_WEIGHT, parseFloat((weight-lostKg).toFixed(1)));
         weightEl.textContent = weight;
@@ -653,6 +707,17 @@ function animate(){
           showSnackMsg('🎉 Goal reached! Sarang is 4kg!','Slim & healthy Maltese 🐶✨');
           statusEl.textContent='Diet complete!! 🎉🐶';
           [0,120,240,360].forEach((t,i)=>setTimeout(()=>playBeep([520,660,780,1040][i],'sine',0.18,0.2),t));
+          // 눈 ^^ 영구히 웃게
+          const es = dog.userData.eyeSprites;
+          const met = dog.userData.makeEyeTex;
+          if(es && met){
+            es.forEach((sp,i)=>{
+              sp.material.map = met(true);
+              sp.material.map.needsUpdate = true;
+              sp.scale.set(i===1?-0.26:0.26, 0.26, 1);
+            });
+            es._wasHappy = true;
+          }
         } else if(jumpCount >= JUMPS_TO_SNACK){
           spawnSnack();
         } else {
@@ -720,17 +785,41 @@ function animate(){
     earPivots[1].rotation.z = -(baseFlap + landBounce + flutter);
   }
 
-  // ── 혀: 간식 먹은 직후 80프레임 동안 쏙 나왔다가 들어감
+  // ── 혀 + 눈 표정: 간식 먹은 직후
   const tg = dog.userData.tongueGroup;
+  const eyeSprites = dog.userData.eyeSprites;
+  const makeEyeTex = dog.userData.makeEyeTex;
+  const sinceSnack = frame - snackCaughtFrame;
+  const happyDur = 120; // 2초간 기쁜 표정
+
   if(tg){
-    const elapsed = frame - snackCaughtFrame;
-    if(elapsed >= 0 && elapsed < 80){
+    if(sinceSnack >= 0 && sinceSnack < 90){
       tg.visible = true;
-      const t = elapsed / 80;
-      tg.position.y = 0.76 - Math.sin(t * Math.PI) * 0.07;
-      tg.rotation.x = Math.sin(frame * 0.35) * 0.1;
+      const t = sinceSnack / 90;
+      tg.position.y = 1.08 - Math.sin(t * Math.PI) * 0.06;
+      tg.rotation.x = Math.sin(frame * 0.4) * 0.1;
     } else {
       tg.visible = false;
+    }
+  }
+
+  // 눈 >< 표정 전환
+  if(eyeSprites && makeEyeTex){
+    const isHappy = (sinceSnack >= 0 && sinceSnack < happyDur) || phase==='won';
+    if(isHappy && !eyeSprites._wasHappy){
+      eyeSprites.forEach((sp,i)=>{
+        sp.material.map=makeEyeTex(true);
+        sp.material.map.needsUpdate=true;
+        sp.scale.set(i===1?-0.26:0.26, 0.26, 1);
+      });
+      eyeSprites._wasHappy=true;
+    } else if(!isHappy && eyeSprites._wasHappy){
+      eyeSprites.forEach((sp,i)=>{
+        sp.material.map=makeEyeTex(false);
+        sp.material.map.needsUpdate=true;
+        sp.scale.set(i===1?-0.16:0.16, 0.16, 1);
+      });
+      eyeSprites._wasHappy=false;
     }
   }
 
@@ -786,22 +875,32 @@ function animate(){
     }
   }
 
-  // ── 하늘 & 조명 업데이트
-  const elapsed = (performance.now()-gameStartTime)/1000;
-  const skyT = Math.min(1, elapsed/SKY_DURATION);
-  if(frame%4===0){
+  // ── 하늘 & 해/달 업데이트
+  const elapsed=(performance.now()-gameStartTime)/1000;
+  const skyT=(((elapsed/SKY_DURATION)%1)+1)%1; // 루프
+  if(frame%3===0){
     updateSky(skyT);
-    // 바닥색도 하늘에 맞게
-    const gNight=0x0a1e38, gDay=0x3a7aaa;
-    const gr=Math.round(((gNight>>16)&255)+(((gDay>>16)&255)-((gNight>>16)&255))*skyT);
-    const gg=Math.round(((gNight>>8)&255)+(((gDay>>8)&255)-((gNight>>8)&255))*skyT);
-    const gb=Math.round((gNight&255)+((gDay&255)-(gNight&255))*skyT);
-    groundMesh.material.color.setRGB(gr/255,gg/255,gb/255);
+    // 바닥색
+    const isDay=skyT>0.12&&skyT<0.62;
+    const gNight=0x0a1228,gDay=0x2a6a9a;
+    const gn=[(gNight>>16)&255,(gNight>>8)&255,gNight&255];
+    const gd=[(gDay>>16)&255,(gDay>>8)&255,gDay&255];
+    const dt=Math.max(0,Math.min(1,(skyT-0.12)/0.15));
+    const dt2=Math.max(0,Math.min(1,1-(skyT-0.62)/0.1));
+    const df=skyT<0.62?dt:dt2;
+    groundMesh.material.color.setRGB((gn[0]+(gd[0]-gn[0])*df)/255,(gn[1]+(gd[1]-gn[1])*df)/255,(gn[2]+(gd[2]-gn[2])*df)/255);
   }
-  starMat.opacity = Math.max(0, 1 - (skyT-0.45)*6);
-  ambientLight.intensity = 0.5 + skyT*1.2;
-  ambientLight.color.setHex(skyT < 0.5 ? 0x223355 : 0xc8d8f0);
-  sun.intensity = 0.3 + skyT*2.2;
+
+  // 별: 낮엔 사라지고 밤엔 반짝
+  const isNight = skyT > 0.65 || skyT < 0.22;
+  const dayness = isNight ? 0 : Math.sin(((skyT-0.22)/(0.65-0.22))*Math.PI);
+  starMat.opacity = Math.max(0, (1-dayness) * 0.9);
+
+  // 조명: 밤에도 강아지 흰색 유지, 낮엔 더 밝게
+  ambientLight.intensity = 0.9 + dayness*0.6;
+  ambientLight.color.setHex(0xd0e8ff);
+  sunLight.intensity = 0.4 + dayness*1.8;
+  rimLight.intensity = 0.5 + dayness*0.3;
 
   renderer.render(scene,camera);
 }
