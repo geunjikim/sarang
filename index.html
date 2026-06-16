@@ -104,7 +104,6 @@ html,body { width:100%; height:100%; overflow:hidden; background:#000; }
 
 <div id="ui">
   <div class="pill" id="weight-pill">⚖️ <span id="weightVal">100</span> kg</div>
-  <button class="ui-btn" onclick="resetGame()">↺ Restart</button>
 </div>
 
 <div id="center-ui">
@@ -329,7 +328,7 @@ shadowBlob.rotation.x=-Math.PI/2;
 shadowBlob.position.y=GROUND_Y+.02;
 scene.add(shadowBlob);
 
-const SNACK_TYPES = ['🥬','🥚','🐟','🍎','🦴'];
+const SNACK_TYPES = ['🥬','🥚','🐟','🍎','🦴','🍠'];
 let snackMesh = null;
 let snackObj  = { x:0, y:20, vy:0, active:false, emoji:'' };
 
